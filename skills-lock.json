@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "home-assistant-api": {
+      "source": "markpitt/claude-skills",
+      "sourceType": "github",
+      "skillPath": "skills/home-assistant-api/SKILL.md",
+      "computedHash": "ee4db8882469d92ebd5e03704dc94e3888572de64e3df60f46c86fd1da759a66"
+    },
+    "hyb26-skill": {
+      "source": "badger/home",
+      "sourceType": "github",
+      "skillPath": ".github/skills/hyb26-skill/SKILL.md",
+      "computedHash": "770b4ec5d076f602cc60e6993e101eae5c2f821a8039a5c652f50ec6de31bc40"
+    }
+  }
+}

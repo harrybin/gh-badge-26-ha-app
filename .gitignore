@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+secrets.py
+secrets.yaml
+office_ha.json
+.badge-app-backups/
+.agents/
