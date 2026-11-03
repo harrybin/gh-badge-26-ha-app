@@ -10,12 +10,14 @@ import wifi
 os.chdir("/system/apps/office")
 sys.path.insert(0, "/system/apps/office")
 from office_client import OfficeClient
+from office_wifi import start_wifi
 
 with open("/system/office_ha.json") as handle:
     config = json.load(handle)
 client = OfficeClient(config, "ha-ca.der")
 del config
 deadline = time.ticks_add(time.ticks_ms(), 45000)
+start_wifi()
 while not wifi.connect(timeout=10, retries=100000):
     if time.ticks_diff(time.ticks_ms(), deadline) > 0:
         raise RuntimeError("Wi-Fi connection timed out")
@@ -29,5 +31,15 @@ while not all(client.fresh(i) for i in range(3)):
         raise RuntimeError("Home Assistant read timed out")
     time.sleep_ms(10)
 print("Verified HTTPS readings:", client.values, client.units)
+previous = client.updated[2]
+deadline = time.ticks_add(time.ticks_ms(), 15000)
+while client.updated[2] == previous:
+    client.step()
+    if client.errors[2]:
+        raise RuntimeError(client.errors[2])
+    if time.ticks_diff(time.ticks_ms(), deadline) > 0:
+        raise RuntimeError("Independent lamp status poll timed out")
+    time.sleep_ms(10)
+print("Independent lamp refresh:", client.values[2])
 client.close()
 print("Screen capture methods:", [name for name in dir(screen) if name in ("save", "to_png", "to_bytes", "buffer")])

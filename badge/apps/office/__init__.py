@@ -10,6 +10,7 @@ APP_DIR = "/system/apps/office"
 os.chdir(APP_DIR)
 sys.path.insert(0, APP_DIR)
 from office_client import OfficeClient
+from office_wifi import start_wifi
 
 badge.mode(HIRES | VSYNC)
 screen.antialias = image.X2
@@ -136,7 +137,7 @@ def draw(now, connected):
 
 
 def update():
-    global wifi_started
+    global wifi_started, setup_error
     if badge.pressed(BUTTON_SELECT):
         on_exit()
         return "/system/apps/menu"
@@ -144,7 +145,13 @@ def update():
     connected = wifi.is_connected()
     if client and not setup_error:
         if not wifi_started:
-            wifi.connect(timeout=10, retries=100000)
+            try:
+                start_wifi()
+            except (OSError, ValueError, SyntaxError, TypeError) as error:
+                print("Office Wi-Fi configuration failed:", type(error).__name__)
+                setup_error = "WLAN: secrets.py auf BADGER pruefen"
+                draw(now, False)
+                return
             wifi_started = True
         connected = wifi.connect()
         if any(badge.pressed(button) for button in (

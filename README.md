@@ -11,6 +11,7 @@ Temperatur, Luftfeuchtigkeit und eine schaltbare WLED-OctoCat-Lampe.
 - Luftfeuchtigkeit mit Tropfen-Emoji auf blauem Hintergrund.
 - OctoCat-Lamp mit Octocat-Bild und bestaetigtem Ein-/Aus-Status.
 - Aktualisierung beim Start, manuell und automatisch alle **5 Minuten**.
+- Lampenstatus alle **5 Sekunden**, auch nach externen Schaltvorgaengen.
 - Sichtbare Verbindungsfehler und Markierung veralteter Messwerte.
 - HTTPS mit Zertifikats- und Hostnamenpruefung.
 
@@ -52,6 +53,8 @@ dass das als **BADGER** bezeichnete Laufwerk `E:` ist und die serielle
 Schnittstelle `COM5` lautet. Vor Ausfuehrung die tatsaechlichen Werte pruefen.
 
 1. WLAN in `E:\secrets.py` eintragen: `WIFI_SSID` und `WIFI_PASSWORD`.
+   Die App liest diese Datei explizit als `/system/secrets.py` und nicht eine
+   eventuell vorhandene alte `/secrets.py` im internen Dateisystem.
 2. Separat `E:\office_ha.json` anlegen:
 
    ```json
@@ -122,8 +125,10 @@ und den Badge nicht mit aktiven Zugangsdaten weitergeben.
 
 Ein Lampenbefehl wird durch erneutes Abfragen des Zustands bestaetigt.
 Fehlgeschlagene Schaltbefehle werden nicht automatisch wiederholt.
-Nach 5 Minuten und 45 Sekunden ohne erfolgreiche Aktualisierung werden Werte
-als veraltet markiert und die Lampensteuerung deaktiviert.
+Nach 5 Minuten und 45 Sekunden ohne erfolgreiche Aktualisierung werden Messwerte
+als veraltet markiert. Der Lampenstatus wird separat alle 5 Sekunden abgefragt;
+nach 20 Sekunden ohne erfolgreiche Abfrage zeigt er einen unbekannten Zustand
+statt AUS, und die Lampensteuerung wird deaktiviert.
 
 ## Entwicklung
 

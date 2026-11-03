@@ -5,17 +5,25 @@ Zeigt Temperatur und Luftfeuchtigkeit im Buero und schaltet die WLED-OctoCat-Lam
 SELECT kehrt zum Home-Launcher zurueck. RUNTER schaltet die OctoCat-Lamp um.
 LINKS, RECHTS und HOCH aktualisieren alle drei Werte.
 MENU und BACK aktualisieren ebenfalls; HOME bleibt die Launcher-Taste.
-Beim Oeffnen und danach alle 5 Minuten werden die Werte automatisch geladen.
-Nach 5 Minuten und 45 Sekunden ohne erfolgreiche
-Aktualisierung werden sie als veraltet markiert; die Lampe ist dann nicht schaltbar.
+Beim Oeffnen und danach alle 5 Minuten werden die Messwerte automatisch geladen.
+Der Lampenstatus wird unabhaengig davon alle 5 Sekunden aus Home Assistant
+abgefragt, damit externe Aenderungen sichtbar werden.
+Nach 5 Minuten und 45 Sekunden werden Messwerte als veraltet markiert.
+Der Lampenstatus gilt bereits nach 20 Sekunden ohne erfolgreiche Abfrage als
+veraltet; die Lampe ist dann nicht schaltbar und zeigt keinen AUS-Status an.
 Unbekannte oder nicht verfuegbare Zustaende werden niemals als AUS interpretiert.
 Nach jedem Schaltbefehl wird der tatsaechliche Zustand erneut abgefragt.
 Schaltbefehle werden bei einem Verbindungsfehler nicht automatisch wiederholt.
 
 ## Einrichtung
 
-WLAN verwendet die vorhandenen WIFI_SSID und WIFI_PASSWORD in der badge-eigenen
-secrets.py. Die separate Datei /system/office_ha.json enthaelt url und token.
+WLAN verwendet ausdruecklich WIFI_SSID und WIFI_PASSWORD aus
+/system/secrets.py (secrets.py im Stamm des BADGER-USB-Laufwerks).
+Eine eventuell vorhandene /secrets.py im internen Root-Dateisystem wird nicht
+verwendet: die Firmware kann beim normalen Import sonst alte Daten laden.
+Beim App-Start wird eine bestehende Funkverbindung zurueckgesetzt und mit
+dieser Konfiguration neu aufgebaut.
+Die separate Datei /system/office_ha.json enthaelt url und token.
 Sie gehoert nicht in das App-Verzeichnis oder die Versionsverwaltung.
 Das lokale Werkzeug tools/prepare_badge.py liest das bereits vorhandene
 ha_token aus einer explizit angegebenen .env-Datei und schreibt die separate

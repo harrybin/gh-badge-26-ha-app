@@ -160,20 +160,56 @@ class ClientTests(unittest.TestCase):
         self.load()
         self.now += 299999
         self.client.step()
-        self.assertEqual(len(self.http.calls), 3)
+        self.assertEqual(self.http.calls[-1][0], "/api/states/light.wled")
+        self.response(2, "off")
         self.assertTrue(self.client.fresh(2))
         self.now += 1
         self.client.step()
-        self.assertEqual(len(self.http.calls), 4)
+        self.assertEqual(len(self.http.calls), 5)
         self.assertEqual(self.http.calls[-1][0], "/api/states/" + module.ENTITIES[0])
         self.assertEqual(self.client.queue, [1, 2])
 
     def test_stale_grace_covers_scheduled_refresh(self):
         self.load()
         self.now += 344999
+        self.assertTrue(self.client.fresh(0))
+        self.assertTrue(self.client.fresh(1))
+        self.now += 1
+        self.assertFalse(self.client.fresh(0))
+        self.assertFalse(self.client.fresh(1))
+
+    def test_external_light_changes_are_polled_every_five_seconds(self):
+        self.load()
+        self.now += 4999
+        self.client.step()
+        self.assertEqual(len(self.http.calls), 3)
+        self.now += 1
+        self.response(2, "on")
+        self.assertEqual(self.http.calls[-1][0], "/api/states/light.wled")
+        self.assertEqual(self.client.values[2], "on")
+        self.now += 5000
+        self.response(2, "off")
+        self.assertEqual(self.client.values[2], "off")
+        self.assertEqual(len(self.http.calls), 5)
+        self.assertTrue(all(call[1]["method"] == "GET" for call in self.http.calls))
+
+    def test_light_becomes_stale_before_sensor_values(self):
+        self.load()
+        self.now += module.LIGHT_STALE_MS - 1
         self.assertTrue(self.client.fresh(2))
         self.now += 1
         self.assertFalse(self.client.fresh(2))
+        self.assertFalse(self.client.set_light())
+        self.assertTrue(self.client.fresh(0))
+
+    def test_light_poll_does_not_duplicate_active_request(self):
+        self.load()
+        self.now += module.LIGHT_POLL_MS
+        self.client.step()
+        self.now += module.LIGHT_POLL_MS
+        self.client.step()
+        self.assertEqual(self.client.active, 2)
+        self.assertEqual(self.client.queue, [])
 
 
 class ButtonTests(unittest.TestCase):

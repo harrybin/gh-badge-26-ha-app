@@ -14,6 +14,8 @@ ENTITIES = (
 )
 POLL_MS = 300000
 STALE_MS = POLL_MS + 45000
+LIGHT_POLL_MS = 5000
+LIGHT_STALE_MS = 20000
 
 
 class VerifiedFetch(fetch.AsyncFetch):
@@ -75,6 +77,7 @@ class OfficeClient:
         self.active = None
         self.started = None
         self.last_poll = time.ticks_ms()
+        self.last_light_poll = self.last_poll
         self.command = None
         self.expected = None
         self.message = None
@@ -89,7 +92,7 @@ class OfficeClient:
         stamp = self.updated[index]
         return (
             stamp is not None
-            and time.ticks_diff(now, stamp) < STALE_MS
+            and time.ticks_diff(now, stamp) < (LIGHT_STALE_MS if index == 2 else STALE_MS)
             and self.errors[index] is None
         )
 
@@ -160,6 +163,10 @@ class OfficeClient:
         if time.ticks_diff(now, self.last_poll) >= POLL_MS:
             self.refresh()
             self.last_poll = now
+        if time.ticks_diff(now, self.last_light_poll) >= LIGHT_POLL_MS:
+            if self.active != 2 and 2 not in self.queue:
+                self.queue.append(2)
+            self.last_light_poll = now
         try:
             if self.active is None:
                 if self.command is not None:
