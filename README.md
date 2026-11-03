@@ -73,6 +73,23 @@ Schnittstelle `COM5` lautet. Vor Ausfuehrung die tatsaechlichen Werte pruefen.
 5. **Office** im Launcher oeffnen. Das eigene Menue-Icon benoetigt eine Firmware
    mit `icon.png`-Unterstuetzung; die App selbst funktioniert auch ohne diese.
 
+### Automatisch beim Einschalten starten
+
+HA-Office kann nach der normalen Startanimation statt des Launchers starten.
+SELECT und HOME fuehren weiterhin zum Launcher: dessen Watchdog-Neustart wird
+nicht zum erneuten Autostart verwendet. USB Disk Mode bleibt unveraendert.
+Nach Installation der App und Pruefung des BADGER-Laufwerks:
+
+```powershell
+python tools\configure_autostart.py --mount 'E:\'
+python tools\configure_autostart.py --mount 'E:\' --write
+```
+
+Das Werkzeug prueft die Bootdatei und sichert das Original unter
+`.badge-app-backups\main.py-<Zeitstempel>`, bevor es `main.py` aendert.
+Zum Rueckgaengigmachen im Disk-Modus diese Sicherung als `main.py`
+zurueckkopieren. Danach BADGER sicher auswerfen.
+
 ### CA und optionale Entwicklungswerkzeuge
 
 `ha-ca.der` enthaelt nur ein oeffentliches CA-Zertifikat, keine Zugangsdaten.
