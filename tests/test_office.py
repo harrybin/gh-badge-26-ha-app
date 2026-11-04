@@ -211,6 +211,20 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.client.active, 2)
         self.assertEqual(self.client.queue, [])
 
+    def test_disconnect_discards_pending_switch_and_invalidates_cached_states(self):
+        self.load()
+        self.client.set_light()
+        self.client.step()
+        self.assertEqual(self.client.active, "command")
+        self.client.connection_lost()
+        self.assertIsNone(self.client.command)
+        self.assertIsNone(self.client.expected)
+        self.assertIsNone(self.client.active)
+        self.assertFalse(any(self.client.fresh(i) for i in range(3)))
+        self.assertEqual(self.client.queue, [0, 1, 2])
+        self.response(0, "22")
+        self.assertEqual(self.http.calls[-1][1]["method"], "GET")
+
 
 class ButtonTests(unittest.TestCase):
     def setUp(self):
@@ -221,8 +235,9 @@ class ButtonTests(unittest.TestCase):
         self.env = {
             "badge": types.SimpleNamespace(pressed=lambda key: key in self.pressed),
             "time": types.SimpleNamespace(ticks_ms=lambda: 1000),
-            "wifi": types.SimpleNamespace(is_connected=lambda: True, connect=lambda **kw: True),
-            "client": self.client, "setup_error": None, "wifi_started": True,
+            "connection": types.SimpleNamespace(poll=lambda: True, generation=1),
+            "connection_generation": 1, "network_ready": True,
+            "client": self.client, "setup_error": None,
             "on_exit": Mock(), "draw": Mock(),
         }
         for key in ("SELECT", "LEFT", "RIGHT", "UP", "DOWN", "MENU", "BACK"):
@@ -252,6 +267,16 @@ class ButtonTests(unittest.TestCase):
                 self.env["update"]()
                 self.client.refresh.assert_called_once_with()
                 self.client.set_light.assert_not_called()
+
+    def test_disconnect_aborts_requests_and_reconnect_refreshes(self):
+        self.env["connection"].poll = lambda: False
+        self.env["update"]()
+        self.client.connection_lost.assert_called_once()
+        self.client.step.assert_not_called()
+        self.env["connection"].poll = lambda: True
+        self.env["connection"].generation = 2
+        self.env["update"]()
+        self.client.refresh.assert_called_once()
 
 
 if __name__ == "__main__":

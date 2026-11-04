@@ -4,13 +4,12 @@ import sys
 import time
 
 import missing_details
-import wifi
 
 APP_DIR = "/system/apps/office"
 os.chdir(APP_DIR)
 sys.path.insert(0, APP_DIR)
 from office_client import OfficeClient
-from office_wifi import start_wifi
+from office_wifi import Connection
 
 badge.mode(HIRES | VSYNC)
 screen.antialias = image.X2
@@ -44,12 +43,15 @@ try:
     if not isinstance(config.get("token"), str) or not config["token"]:
         raise ValueError("Token fehlt")
     client = OfficeClient(config, "ha-ca.der")
+    connection = Connection()
     del config
-except (OSError, ValueError, KeyError, TypeError) as error:
+except (OSError, ValueError, KeyError, TypeError, SyntaxError) as error:
     print("Office configuration failed:", type(error).__name__)
-    setup_error = "office_ha.json pruefen"
+    setup_error = "HA-Konfiguration / secrets.py pruefen"
+    connection = None
 
-wifi_started = False
+connection_generation = 0
+network_ready = False
 
 
 def box(x, y, width, height, radius, pen):
@@ -120,7 +122,7 @@ def draw(now, connected):
 
     message = setup_error
     if message is None and not connected:
-        message = "WLAN verbindet..." if wifi_started else "WLAN wird gestartet..."
+        message = connection.message or "Verbindung wird aufgebaut..."
     if message is None and client:
         message = client.message
         if message is None:
@@ -137,23 +139,20 @@ def draw(now, connected):
 
 
 def update():
-    global wifi_started, setup_error
+    global connection_generation, network_ready
     if badge.pressed(BUTTON_SELECT):
         on_exit()
         return "/system/apps/menu"
     now = time.ticks_ms()
-    connected = wifi.is_connected()
+    connected = False
     if client and not setup_error:
-        if not wifi_started:
-            try:
-                start_wifi()
-            except (OSError, ValueError, SyntaxError, TypeError) as error:
-                print("Office Wi-Fi configuration failed:", type(error).__name__)
-                setup_error = "WLAN: secrets.py auf BADGER pruefen"
-                draw(now, False)
-                return
-            wifi_started = True
-        connected = wifi.connect()
+        connected = connection.poll()
+        if network_ready and not connected:
+            client.connection_lost()
+        network_ready = connected
+        if connected and connection_generation != connection.generation:
+            connection_generation = connection.generation
+            client.refresh()
         if any(badge.pressed(button) for button in (
             BUTTON_LEFT, BUTTON_RIGHT, BUTTON_UP, BUTTON_MENU, BUTTON_BACK
         )):
@@ -168,6 +167,8 @@ def update():
 def on_exit():
     if client:
         client.close()
+    if connection:
+        connection.close()
 
 
 run(update)

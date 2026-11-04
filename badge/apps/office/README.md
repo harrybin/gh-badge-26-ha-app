@@ -21,8 +21,11 @@ WLAN verwendet ausdruecklich WIFI_SSID und WIFI_PASSWORD aus
 /system/secrets.py (secrets.py im Stamm des BADGER-USB-Laufwerks).
 Eine eventuell vorhandene /secrets.py im internen Root-Dateisystem wird nicht
 verwendet: die Firmware kann beim normalen Import sonst alte Daten laden.
-Beim App-Start wird eine bestehende Funkverbindung zurueckgesetzt und mit
-dieser Konfiguration neu aufgebaut.
+Die App verwaltet das Funkmodul direkt statt ueber das zwischengespeicherte
+Firmware-wifi-Modul. Beim Start und nach Ausfaellen wird das Radio fuer eine
+Sekunde abgeschaltet und anschliessend neu verbunden. Verbindungsversuche
+sind auf 20 Sekunden begrenzt; weitere Versuche erfolgen mit wachsender Pause
+von 1 bis maximal 30 Sekunden, ohne die Bedienung zu blockieren.
 Die separate Datei /system/office_ha.json enthaelt url und token.
 Sie gehoert nicht in das App-Verzeichnis oder die Versionsverwaltung.
 Das lokale Werkzeug tools/prepare_badge.py liest das bereits vorhandene
@@ -36,8 +39,12 @@ Es werden ausschliesslich diese bestaetigten Entities verwendet:
 - light.wled (OctoCat)
 
 HTTPS prueft Zertifikat und Hostnamen mit der oeffentlichen CA in ha-ca.der.
-Die Badge-Uhr muss stimmen; das Deployment setzt sie ueber USB auf die PC-Zeit.
-Nach voelligem Stromverlust die Uhr erneut per mpremote rtc --set stellen.
+Nach voelligem Stromverlust synchronisiert die App eine zurueckgesetzte Uhr
+automatisch ueber NTP, bevor sie HTTPS-Anfragen erlaubt. Sie verwendet abwechselnd
+pool.ntp.org und time.cloudflare.com (UDP 123). Bleiben Zeitserver unerreichbar,
+zeigt sie das an und versucht es erneut; SELECT/HOME bleiben bedienbar.
+Bei Verbindungsabbruch werden HTTP-Verbindungen und ausstehende Schaltbefehle
+verworfen. Nach Wiederverbindung werden alle drei Zustaende sofort neu geladen.
 Die App schaltet die Zertifikatspruefung niemals stillschweigend ab.
 Ein dedizierter, nicht-administrativer HA-Benutzer fuer das Badge wird empfohlen.
 Das Token liegt wie die WLAN-Konfiguration lesbar auf dem physischen Badge:

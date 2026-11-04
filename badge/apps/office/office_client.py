@@ -225,3 +225,14 @@ class OfficeClient:
 
     def close(self):
         self.http.reset()
+
+    def connection_lost(self):
+        # A POST may already have reached HA. Drop it; never replay on reconnect.
+        if self.busy or self.active == "command":
+            self._notice("Verbindung weg - Lampenstatus pruefen")
+        self.command = None
+        self.expected = None
+        self.active = None
+        self.updated = [None, None, None]
+        self.http.reset()
+        self.queue = [0, 1, 2]

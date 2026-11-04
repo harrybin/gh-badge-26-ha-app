@@ -66,7 +66,10 @@ Schnittstelle `COM5` lautet. Vor Ausfuehrung die tatsaechlichen Werte pruefen.
 
 3. `badge\apps\office` nach `E:\apps\office` kopieren. Vorhandene Installationen
    vorher sichern. Manche Firmware verwendet `E:\system\apps` statt `E:\apps`.
-4. BADGER sicher auswerfen. Die Badge-Uhr muss fuer HTTPS korrekt sein:
+4. BADGER sicher auswerfen. Die App verbindet WLAN und synchronisiert nach
+   Stromverlust automatisch die Uhr per NTP, bevor sie HTTPS verwendet.
+   Falls UDP-Port 123 im Netzwerk blockiert ist, muss er fuer `pool.ntp.org`
+   bzw. `time.cloudflare.com` erreichbar gemacht oder die Uhr per USB gesetzt werden:
 
    ```powershell
    python -m mpremote connect COM5 rtc --set
@@ -130,6 +133,14 @@ als veraltet markiert. Der Lampenstatus wird separat alle 5 Sekunden abgefragt;
 nach 20 Sekunden ohne erfolgreiche Abfrage zeigt er einen unbekannten Zustand
 statt AUS, und die Lampensteuerung wird deaktiviert.
 
+Die App verwaltet WLAN direkt, ohne den moeglicherweise veralteten Zustand des
+Firmware-`wifi`-Moduls zu uebernehmen. Nach Ausfaellen startet sie das Funkmodul
+neu und verbindet mit begrenzten Versuchen und 1 bis 30 Sekunden Wiederholpause.
+Eine auf 2021 zurueckgesetzte Uhr wird vor HTTPS automatisch per NTP korrigiert;
+Zertifikatspruefung bleibt immer aktiv. Netzwerk- und Zeitfehler werden angezeigt.
+Nach Wiederverbindung werden alle Werte sofort neu abgefragt. Schaltbefehle
+aus einer abgebrochenen Verbindung werden niemals automatisch wiederholt.
+
 ## Entwicklung
 
 Die Skills werden ueber `skills-lock.json` referenziert; ihre lokalen Kopien
@@ -152,6 +163,11 @@ dem Badge, ohne die Lampe zu schalten. `tools\render_on_badge.py` erzeugt einen
 Framebuffer-Screenshot. Beide sind fuer Ausfuehrung mit `mpremote run` gedacht,
 nicht fuer Desktop-Python. Der Browser-Simulator kann Netzwerk und echtes
 Schalten nicht nachweisen.
+
+`tools\check_connection_recovery.py` prueft auf dem Badge gezielt den
+Stromverlust-Fall (RTC auf 2021), automatische Zeitsynchronisation, geprueftes
+HTTPS und Wiederverbindung nach Abschalten des Funkmoduls. Die Lampe wird
+dabei nicht geschaltet; die Uhr wird durch die normale NTP-Logik korrigiert.
 
 ## Bildnachweise
 
