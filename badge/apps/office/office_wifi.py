@@ -47,6 +47,11 @@ class Connection:
             self.ntp.close()
             self.ntp = None
 
+    def reconnect(self):
+        # Association alone does not prove that DNS/TCP can still reach HA.
+        if self.phase == "connected":
+            self._retry("HTTPS unterbrochen - WLAN wird neu verbunden")
+
     def _retry(self, message, radio=True):
         self.close()
         self.was_ready = False

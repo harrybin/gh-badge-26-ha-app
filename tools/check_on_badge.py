@@ -22,7 +22,7 @@ while not connection.poll():
         raise RuntimeError("Wi-Fi connection timed out")
     time.sleep_ms(50)
 print("Wi-Fi and clock ready:", time.gmtime()[:6])
-while not all(client.fresh(i) for i in range(3)):
+while not all(client.fresh(i) for i in range(len(client.values))):
     client.step()
     if any(client.errors):
         raise RuntimeError(str(client.errors))
@@ -30,16 +30,16 @@ while not all(client.fresh(i) for i in range(3)):
         raise RuntimeError("Home Assistant read timed out")
     time.sleep_ms(10)
 print("Verified HTTPS readings:", client.values, client.units)
-previous = client.updated[2]
+previous = client.updated[2:]
 deadline = time.ticks_add(time.ticks_ms(), 15000)
-while client.updated[2] == previous:
+while any(client.updated[i + 2] == stamp for i, stamp in enumerate(previous)):
     client.step()
-    if client.errors[2]:
-        raise RuntimeError(client.errors[2])
+    if any(client.errors[2:]):
+        raise RuntimeError(str(client.errors[2:]))
     if time.ticks_diff(time.ticks_ms(), deadline) > 0:
         raise RuntimeError("Independent lamp status poll timed out")
     time.sleep_ms(10)
-print("Independent lamp refresh:", client.values[2])
+print("Independent lamp refresh:", client.values[2:])
 client.close()
 connection.close()
 print("Screen capture methods:", [name for name in dir(screen) if name in ("save", "to_png", "to_bytes", "buffer")])

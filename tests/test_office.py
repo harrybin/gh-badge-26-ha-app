@@ -70,14 +70,14 @@ class ClientTests(unittest.TestCase):
         self.http.result = None
 
     def load(self):
-        for index, value in enumerate(("24.0", "36", "off")):
+        for index, value in enumerate(("24.0", "36", "off", "on")):
             self.response(index, value)
 
-    def test_reads_only_three_entities(self):
+    def test_reads_only_four_entities(self):
         self.load()
-        self.assertEqual(self.client.values, [24.0, 36.0, "off"])
-        self.assertEqual(len(self.http.calls), 3)
-        self.assertTrue(all(self.client.fresh(i) for i in range(3)))
+        self.assertEqual(self.client.values, [24.0, 36.0, "off", "on"])
+        self.assertEqual(len(self.http.calls), 4)
+        self.assertTrue(all(self.client.fresh(i) for i in range(4)))
 
     def test_toggle_uses_service_then_confirms(self):
         self.load()
@@ -141,7 +141,7 @@ class ClientTests(unittest.TestCase):
         self.client.step()
         self.client.refresh()
         self.client.refresh()
-        self.assertEqual(self.client.queue, [1, 2])
+        self.assertEqual(self.client.queue, [1, 2, 3])
         self.now += 12001
         self.client.step()
         self.assertIn("Zeitlimit", self.client.errors[0])
@@ -162,12 +162,13 @@ class ClientTests(unittest.TestCase):
         self.client.step()
         self.assertEqual(self.http.calls[-1][0], "/api/states/light.wled")
         self.response(2, "off")
+        self.response(3, "on")
         self.assertTrue(self.client.fresh(2))
         self.now += 1
         self.client.step()
-        self.assertEqual(len(self.http.calls), 5)
+        self.assertEqual(len(self.http.calls), 7)
         self.assertEqual(self.http.calls[-1][0], "/api/states/" + module.ENTITIES[0])
-        self.assertEqual(self.client.queue, [1, 2])
+        self.assertEqual(self.client.queue, [1, 2, 3])
 
     def test_stale_grace_covers_scheduled_refresh(self):
         self.load()
@@ -182,15 +183,18 @@ class ClientTests(unittest.TestCase):
         self.load()
         self.now += 4999
         self.client.step()
-        self.assertEqual(len(self.http.calls), 3)
+        self.assertEqual(len(self.http.calls), 4)
         self.now += 1
         self.response(2, "on")
         self.assertEqual(self.http.calls[-1][0], "/api/states/light.wled")
         self.assertEqual(self.client.values[2], "on")
+        self.response(3, "off")
+        self.assertEqual(self.client.values[3], "off")
         self.now += 5000
         self.response(2, "off")
+        self.response(3, "on")
         self.assertEqual(self.client.values[2], "off")
-        self.assertEqual(len(self.http.calls), 5)
+        self.assertEqual(len(self.http.calls), 8)
         self.assertTrue(all(call[1]["method"] == "GET" for call in self.http.calls))
 
     def test_light_becomes_stale_before_sensor_values(self):
@@ -209,7 +213,7 @@ class ClientTests(unittest.TestCase):
         self.now += module.LIGHT_POLL_MS
         self.client.step()
         self.assertEqual(self.client.active, 2)
-        self.assertEqual(self.client.queue, [])
+        self.assertEqual(self.client.queue, [3])
 
     def test_disconnect_discards_pending_switch_and_invalidates_cached_states(self):
         self.load()
@@ -220,10 +224,124 @@ class ClientTests(unittest.TestCase):
         self.assertIsNone(self.client.command)
         self.assertIsNone(self.client.expected)
         self.assertIsNone(self.client.active)
-        self.assertFalse(any(self.client.fresh(i) for i in range(3)))
-        self.assertEqual(self.client.queue, [0, 1, 2])
+        self.assertFalse(any(self.client.fresh(i) for i in range(4)))
+        self.assertEqual(self.client.queue, [0, 1, 2, 3])
         self.response(0, "22")
         self.assertEqual(self.http.calls[-1][1]["method"], "GET")
+
+    def test_three_network_failures_require_reconnect_even_when_wifi_is_associated(self):
+        self.http.failure = OSError("unreachable")
+        for attempt in range(3):
+            self.client.queue = [2]
+            self.client.step()
+            self.assertEqual(self.client.needs_reconnect, attempt == 2)
+        self.client.connection_lost()
+        self.assertFalse(self.client.needs_reconnect)
+        self.assertEqual(self.client.queue, [0, 1, 2, 3])
+
+    def test_successful_response_clears_network_failure_streak(self):
+        self.client.network_failures = 2
+        self.response(0, "24")
+        self.assertEqual(self.client.network_failures, 0)
+
+    def test_http_and_data_errors_do_not_restart_wifi(self):
+        for error in (HTTPException(), ValueError("invalid JSON")):
+            self.client.network_failures = 2
+            self.http.failure = error
+            self.client.queue = [0]
+            self.client.step()
+            self.assertEqual(self.client.network_failures, 0)
+
+    def test_transport_error_status_and_timeouts_count_for_recovery(self):
+        self.http.update = lambda: self.http.ERROR
+        self.client.step()
+        self.assertEqual(self.client.network_failures, 1)
+        self.http.update = lambda: self.http.FETCHING
+        for _ in range(2):
+            self.client.queue = [2]
+            self.client.step()
+            self.now += 12001
+            self.client.step()
+        self.assertTrue(self.client.needs_reconnect)
+
+    def test_second_lamp_uses_switch_domain_and_confirms_only_target(self):
+        self.load()
+        self.assertTrue(self.client.set_light(index=3))
+        self.assertFalse(self.client.set_light())
+        self.http.result = []
+        self.client.step()
+        path, options = self.http.calls[-1]
+        self.assertEqual(path, "/api/services/switch/turn_off")
+        self.assertEqual(json.loads(options["data"]), {
+            "entity_id": "switch.hintergrundlicht_socket_1",
+        })
+        self.assertEqual(self.client.queue[0], 3)
+        self.assertEqual(self.client.values[2], "off")
+        self.assertEqual(self.client.values[3], "on")
+        self.client.queue = [2, 3]
+        self.response(2, "on")
+        self.assertTrue(self.client.busy)
+        self.response(3, "off")
+        self.assertFalse(self.client.busy)
+        self.assertEqual(self.client.message, "LED-Lampe ist aus")
+
+    def test_second_lamp_timeout_never_replays_switch_and_preserves_octocat_freshness(self):
+        self.load()
+        self.client.set_light(index=3)
+        self.http.failure = OSError("timeout")
+        self.client.step()
+        self.assertFalse(self.client.fresh(3))
+        self.assertTrue(self.client.fresh(2))
+        self.assertEqual(self.client.queue[0], 3)
+        self.assertFalse(self.client.busy)
+        self.http.failure = None
+        self.response(3, "off")
+        self.assertEqual(sum(call[1]["method"] == "POST" for call in self.http.calls), 1)
+
+    def test_second_lamp_stale_unavailable_and_disconnect_disable_control(self):
+        self.load()
+        self.now += module.LIGHT_STALE_MS
+        self.assertFalse(self.client.set_light(index=3))
+        self.client.queue = [3]
+        self.response(3, "unavailable")
+        self.assertIsNone(self.client.values[3])
+        self.assertFalse(self.client.set_light(index=3))
+        self.response(2, "off")
+        self.client.queue = [3]
+        self.response(3, "on")
+        self.client.set_light(index=3)
+        self.client.connection_lost()
+        self.assertFalse(self.client.busy)
+        self.assertFalse(self.client.set_light(index=3))
+
+    def test_invalid_lamp_index_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self.client.set_light(index=0)
+
+
+class DNSRecoveryTests(unittest.TestCase):
+    def test_each_request_resolves_dns_instead_of_reusing_obsolete_address(self):
+        http = module.VerifiedFetch.__new__(module.VerifiedFetch)
+        http._host, http._port = "example.test", 8123
+        http._addr_info = (2, 1, 0, "", ("192.0.2.1", 8123))
+        http.context = Mock()
+        sock = Mock()
+        with patch.object(module.socket, "getaddrinfo") as resolve, \
+                patch.object(module.socket, "socket", return_value=sock):
+            for ip in ("192.0.2.2", "192.0.2.3"):
+                resolve.return_value = [(2, 1, 0, "", (ip, 8123))]
+                list(http._connect())
+                sock.connect.assert_called_with((ip, 8123))
+            self.assertEqual(resolve.call_count, 2)
+
+    def test_dns_failure_does_not_keep_previous_address(self):
+        http = module.VerifiedFetch.__new__(module.VerifiedFetch)
+        http._host, http._port = "example.test", 8123
+        http._addr_info = (2, 1, 0, "", ("192.0.2.1", 8123))
+        with patch.object(module.socket, "getaddrinfo", side_effect=OSError("DNS")):
+            with self.assertRaises(OSError):
+                list(http._connect())
+        self.assertIsNone(http._addr_info)
 
 
 class ButtonTests(unittest.TestCase):
@@ -231,6 +349,7 @@ class ButtonTests(unittest.TestCase):
         tree = ast.parse((APP / "__init__.py").read_text())
         update = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "update")
         self.client = Mock()
+        self.client.needs_reconnect = False
         self.pressed = set()
         self.env = {
             "badge": types.SimpleNamespace(pressed=lambda key: key in self.pressed),
@@ -259,7 +378,7 @@ class ButtonTests(unittest.TestCase):
         self.client.refresh.assert_not_called()
 
     def test_other_buttons_refresh_without_switching(self):
-        for key in ("LEFT", "RIGHT", "UP", "MENU", "BACK"):
+        for key in ("LEFT", "RIGHT", "MENU", "BACK"):
             with self.subTest(key=key):
                 self.client.reset_mock()
                 self.pressed.clear()
@@ -267,6 +386,18 @@ class ButtonTests(unittest.TestCase):
                 self.env["update"]()
                 self.client.refresh.assert_called_once_with()
                 self.client.set_light.assert_not_called()
+
+    def test_up_toggles_only_second_lamp_without_refresh(self):
+        self.pressed.add("UP")
+        self.env["update"]()
+        self.client.set_light.assert_called_once_with(index=3)
+        self.client.refresh.assert_not_called()
+
+    def test_offline_up_and_down_do_not_switch(self):
+        self.env["connection"].poll = lambda: False
+        self.pressed.update(("UP", "DOWN"))
+        self.env["update"]()
+        self.client.set_light.assert_not_called()
 
     def test_disconnect_aborts_requests_and_reconnect_refreshes(self):
         self.env["connection"].poll = lambda: False
@@ -277,6 +408,15 @@ class ButtonTests(unittest.TestCase):
         self.env["connection"].generation = 2
         self.env["update"]()
         self.client.refresh.assert_called_once()
+
+    def test_failed_https_restarts_wifi_and_discards_commands_in_actual_update(self):
+        self.env["connection"].reconnect = Mock()
+        self.client.needs_reconnect = True
+        self.env["update"]()
+        self.env["connection"].reconnect.assert_called_once()
+        self.client.connection_lost.assert_called_once()
+        self.assertFalse(self.env["network_ready"])
+        self.env["draw"].assert_called_once_with(1000, False)
 
 
 if __name__ == "__main__":

@@ -11,11 +11,15 @@ ENTITIES = (
     "sensor.gewachshaus_temperatur",
     "sensor.gewachshaus_luftfeuchtigkeit",
     "light.wled",
+    "switch.hintergrundlicht_socket_1",
 )
+LIGHTS = (2, 3)
+LIGHT_NAMES = ("OctoCat-Lamp", "LED-Lampe")
 POLL_MS = 300000
 STALE_MS = POLL_MS + 45000
 LIGHT_POLL_MS = 5000
 LIGHT_STALE_MS = 20000
+REQUEST_FAILURE_LIMIT = 3
 
 
 class VerifiedFetch(fetch.AsyncFetch):
@@ -30,10 +34,11 @@ class VerifiedFetch(fetch.AsyncFetch):
 
     def _connect(self):
         self._phase = "dns"
-        if self._addr_info is None:
-            self._addr_info = socket.getaddrinfo(
-                self._host, self._port, 0, socket.SOCK_STREAM
-            )[0]
+        # Firmware reset() keeps its DNS cache, even after a failed connection.
+        self._addr_info = None
+        self._addr_info = socket.getaddrinfo(
+            self._host, self._port, 0, socket.SOCK_STREAM
+        )[0]
         family, kind, protocol, _, address = self._addr_info
         sock = socket.socket(family, kind, protocol)
         sock.setblocking(False)
@@ -69,11 +74,11 @@ class OfficeClient:
             "Authorization": "Bearer " + config["token"],
             "Content-Type": "application/json",
         }
-        self.values = [None, None, None]
-        self.units = ["C", "%", ""]
-        self.updated = [None, None, None]
-        self.errors = [None, None, None]
-        self.queue = [0, 1, 2]
+        self.values = [None] * len(ENTITIES)
+        self.units = ["C", "%", "", ""]
+        self.updated = [None] * len(ENTITIES)
+        self.errors = [None] * len(ENTITIES)
+        self.queue = list(range(len(ENTITIES)))
         self.active = None
         self.started = None
         self.last_poll = time.ticks_ms()
@@ -82,6 +87,11 @@ class OfficeClient:
         self.expected = None
         self.message = None
         self.message_at = None
+        self.network_failures = 0
+
+    @property
+    def needs_reconnect(self):
+        return self.network_failures >= REQUEST_FAILURE_LIMIT
 
     @property
     def busy(self):
@@ -92,25 +102,27 @@ class OfficeClient:
         stamp = self.updated[index]
         return (
             stamp is not None
-            and time.ticks_diff(now, stamp) < (LIGHT_STALE_MS if index == 2 else STALE_MS)
+            and time.ticks_diff(now, stamp) < (LIGHT_STALE_MS if index in LIGHTS else STALE_MS)
             and self.errors[index] is None
         )
 
     def refresh(self):
-        for index in range(3):
+        for index in range(len(ENTITIES)):
             if index not in self.queue and self.active != index:
                 self.queue.append(index)
 
-    def set_light(self, target=None):
-        if self.busy or not self.fresh(2) or self.values[2] not in ("on", "off"):
+    def set_light(self, target=None, index=2):
+        if index not in LIGHTS:
+            raise ValueError("Ungueltige Lampe")
+        if self.busy or not self.fresh(index) or self.values[index] not in ("on", "off"):
             return False
         if target is None:
-            target = "off" if self.values[2] == "on" else "on"
+            target = "off" if self.values[index] == "on" else "on"
         if target not in ("on", "off"):
             raise ValueError("Ungueltiger Lampenzustand")
-        if target == self.values[2]:
+        if target == self.values[index]:
             return False
-        self.command = target
+        self.command = (index, target)
         self.message = None
         return True
 
@@ -125,10 +137,12 @@ class OfficeClient:
         if job == "command":
             self.expected = self.command
             self.command = None
+            index, target = self.expected
+            domain = ENTITIES[index].split(".")[0]
             self.http.fetch(
-                "/api/services/light/turn_" + self.expected,
+                "/api/services/" + domain + "/turn_" + target,
                 headers=self.headers,
-                data=json.dumps({"entity_id": ENTITIES[2]}).encode(),
+                data=json.dumps({"entity_id": ENTITIES[index]}).encode(),
                 method="POST",
             )
         else:
@@ -138,22 +152,24 @@ class OfficeClient:
                 method="GET",
             )
 
-    def _confirm(self):
-        self.queue = [2] + [index for index in self.queue if index != 2]
+    def _confirm(self, index):
+        self.queue = [index] + [queued for queued in self.queue if queued != index]
 
-    def _fail(self, message):
+    def _fail(self, message, network=False):
         job = self.active
+        self.network_failures = self.network_failures + 1 if network else 0
         self.http.reset()
         self.active = None
         self._notice(message)
         if job == "command":
             # A timed-out POST may have reached HA. Never replay it blindly.
-            self.updated[2] = None
+            index = self.expected[0]
+            self.updated[index] = None
             self.expected = None
-            self._confirm()
+            self._confirm(index)
         elif isinstance(job, int):
             self.errors[job] = message
-            if job == 2:
+            if self.expected is not None and job == self.expected[0]:
                 self.expected = None
 
     def step(self):
@@ -164,8 +180,9 @@ class OfficeClient:
             self.refresh()
             self.last_poll = now
         if time.ticks_diff(now, self.last_light_poll) >= LIGHT_POLL_MS:
-            if self.active != 2 and 2 not in self.queue:
-                self.queue.append(2)
+            for index in LIGHTS:
+                if self.active != index and index not in self.queue:
+                    self.queue.append(index)
             self.last_light_poll = now
         try:
             if self.active is None:
@@ -176,13 +193,14 @@ class OfficeClient:
                 else:
                     return
             if time.ticks_diff(now, self.started) > 12000:
-                self._fail("Zeitlimit - HOCH: neu laden")
+                self._fail("Zeitlimit - neuer Versuch", network=True)
                 return
             status = self.http.update()
             if status == fetch.AsyncFetch.DONE:
+                self.network_failures = 0
                 job = self.active
                 if job == "command":
-                    self._confirm()
+                    self._confirm(self.expected[0])
                 else:
                     data = self.http.to_json()
                     if not isinstance(data, dict) or data.get("entity_id") != ENTITIES[job]:
@@ -200,9 +218,9 @@ class OfficeClient:
                         self.units[job] = unit or ("C" if job == 0 else "%")
                     else:
                         self.values[job] = state if state in ("on", "off") else None
-                        if self.expected is not None:
-                            if state == self.expected:
-                                self._notice("OctoCat-Lamp ist " + ("an" if state == "on" else "aus"))
+                        if self.expected is not None and job == self.expected[0]:
+                            if state == self.expected[1]:
+                                self._notice(LIGHT_NAMES[job - 2] + " ist " + ("an" if state == "on" else "aus"))
                             else:
                                 self._notice("Nicht bestaetigt - neu laden")
                             self.expected = None
@@ -210,7 +228,7 @@ class OfficeClient:
                     self.errors[job] = None
                 self.active = None
             elif status == fetch.AsyncFetch.ERROR:
-                self._fail("Home Assistant antwortet nicht")
+                self._fail("Home Assistant antwortet nicht", network=True)
         except fetch.HTTPException:
             code = self.http.http_status
             message = {
@@ -219,7 +237,10 @@ class OfficeClient:
                 404: "Entity nicht gefunden",
             }.get(code, "Home Assistant: HTTP " + str(code))
             self._fail(message)
-        except (OSError, ValueError, KeyError, TypeError) as error:
+        except OSError as error:
+            print("Office request network error:", error.errno)
+            self._fail("Verbindung unterbrochen - neuer Versuch", network=True)
+        except (ValueError, KeyError, TypeError) as error:
             print("Office request failed:", type(error).__name__)
             self._fail("Verbindung / Daten pruefen")
 
@@ -233,6 +254,7 @@ class OfficeClient:
         self.command = None
         self.expected = None
         self.active = None
-        self.updated = [None, None, None]
+        self.network_failures = 0
+        self.updated = [None] * len(ENTITIES)
         self.http.reset()
-        self.queue = [0, 1, 2]
+        self.queue = list(range(len(ENTITIES)))

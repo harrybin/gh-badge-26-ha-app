@@ -23,7 +23,7 @@ def wait_ready(connection):
 
 def read_states(client):
     deadline = time.ticks_add(time.ticks_ms(), 45000)
-    while not all(client.fresh(i) for i in range(3)):
+    while not all(client.fresh(i) for i in range(len(client.values))):
         client.step()
         if any(client.errors):
             raise RuntimeError(str(client.errors))

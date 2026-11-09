@@ -1,15 +1,17 @@
 # HA-Office
 
 Ein farbiges Home-Assistant-Dashboard fuer den **GitHub Universe 2026 Badge**:
-Temperatur, Luftfeuchtigkeit und eine schaltbare WLED-OctoCat-Lampe.
+Temperatur, Luftfeuchtigkeit und zwei schaltbare Buero-Lampen im 2x2-Layout.
 
-![HA-Office auf dem echten Badge, hier noch ohne WLAN-Verbindung](docs/ha-office.png)
+![HA-Office auf dem echten Badge mit zwei Lampen](docs/ha-office.png)
 
 ## Funktionen
 
 - Temperatur mit Thermometer-Emoji auf orangem Hintergrund.
 - Luftfeuchtigkeit mit Tropfen-Emoji auf blauem Hintergrund.
 - OctoCat-Lamp mit Octocat-Bild und bestaetigtem Ein-/Aus-Status.
+- LED-Lampe mit geschwungenem, buntem RGB-Streifen-Symbol und eigenem Ein-/Aus-Status.
+- Links Temperatur ueber Luftfeuchte, rechts LED-Lampe ueber OctoCat-Lamp.
 - Aktualisierung beim Start, manuell und automatisch alle **5 Minuten**.
 - Lampenstatus alle **5 Sekunden**, auch nach externen Schaltvorgaengen.
 - Sichtbare Verbindungsfehler und Markierung veralteter Messwerte.
@@ -21,7 +23,8 @@ Temperatur, Luftfeuchtigkeit und eine schaltbare WLED-OctoCat-Lampe.
 |---|---|
 | SELECT | Zurueck zum Home-Launcher |
 | RUNTER | OctoCat-Lamp ein-/ausschalten |
-| LINKS, RECHTS, HOCH | Alle Werte aktualisieren |
+| HOCH | Zweite LED-Lampe ein-/ausschalten |
+| LINKS, RECHTS | Alle Werte aktualisieren |
 | MENU, BACK | Ebenfalls aktualisieren |
 | HOME | Firmware-eigene Rueckkehr zum Launcher |
 
@@ -35,7 +38,7 @@ einer erreichbaren Home-Assistant-Instanz mit HTTPS. Die alten Universe-2025-API
 sind nicht kompatibel. Die App verwendet die auf dem Badge vorhandenen Module
 `fetch`, `wifi`, `tls`, `missing_details` und Mona Sans.
 
-Die drei verwendeten Entities stehen in
+Die vier verwendeten Entities stehen in
 [`office_client.py`](badge/apps/office/office_client.py):
 
 | Anzeige | Entity-ID im urspruenglichen Setup |
@@ -43,6 +46,7 @@ Die drei verwendeten Entities stehen in
 | Temperatur | `sensor.gewachshaus_temperatur` |
 | Luftfeuchtigkeit | `sensor.gewachshaus_luftfeuchtigkeit` |
 | OctoCat-Lamp | `light.wled` |
+| LED-Lampe (Hintergrund-Licht) | `switch.hintergrundlicht_socket_1` |
 
 Vor der Installation an die eigene Home-Assistant-Konfiguration anpassen.
 
@@ -140,6 +144,11 @@ Eine auf 2021 zurueckgesetzte Uhr wird vor HTTPS automatisch per NTP korrigiert;
 Zertifikatspruefung bleibt immer aktiv. Netzwerk- und Zeitfehler werden angezeigt.
 Nach Wiederverbindung werden alle Werte sofort neu abgefragt. Schaltbefehle
 aus einer abgebrochenen Verbindung werden niemals automatisch wiederholt.
+Jede HTTPS-Verbindung loest den Servernamen erneut auf, statt eine veraltete
+IP-Adresse unbegrenzt wiederzuverwenden. Nach drei aufeinanderfolgenden
+Transportfehlern oder Zeitlimits wird WLAN auch dann neu verbunden, wenn das
+Funkmodul weiterhin eine erfolgreiche Verbindung meldet. HTTP-Fehler wie ein
+ungueltiges Token sowie Datenfehler loesen keinen WLAN-Neustart aus.
 
 ## Entwicklung
 
@@ -158,7 +167,7 @@ python -m unittest discover -s tests -v
 python .agents\skills\hyb26-skill\scripts\validate_app.py badge\apps\office --target hardware
 ```
 
-`tools\check_on_badge.py` prueft WLAN und die drei Entity-Abfragen direkt auf
+`tools\check_on_badge.py` prueft WLAN und die vier Entity-Abfragen direkt auf
 dem Badge, ohne die Lampe zu schalten. `tools\render_on_badge.py` erzeugt einen
 Framebuffer-Screenshot. Beide sind fuer Ausfuehrung mit `mpremote run` gedacht,
 nicht fuer Desktop-Python. Der Browser-Simulator kann Netzwerk und echtes
@@ -168,6 +177,9 @@ Schalten nicht nachweisen.
 Stromverlust-Fall (RTC auf 2021), automatische Zeitsynchronisation, geprueftes
 HTTPS und Wiederverbindung nach Abschalten des Funkmoduls. Die Lampe wird
 dabei nicht geschaltet; die Uhr wird durch die normale NTP-Logik korrigiert.
+`tools\check_http_recovery.py` prueft im echten App-Update-Loop eine veraltete
+DNS-Adresse und unerreichbares HTTPS bei weiterhin verbundenem WLAN. Es muss
+ohne Benutzereingriff alle Werte neu laden; Lampenbefehle sind im Test gesperrt.
 
 ## Bildnachweise
 

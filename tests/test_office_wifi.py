@@ -151,6 +151,25 @@ class WifiTests(unittest.TestCase):
         self.assertTrue(self.connection.poll())
         self.socket.socket.assert_not_called()
 
+    def test_https_failure_forces_reassociation_even_if_radio_reports_connected(self):
+        self.year = 2026
+        self.associate()
+        self.assertTrue(self.connection.poll())
+        self.connection.reconnect()
+        self.assertFalse(self.connection.was_ready)
+        self.assertFalse(self.connection.poll())
+        self.now += self.connection.delay
+        self.connection.poll()
+        self.radio.active.assert_called_with(False)
+        self.now += self.module.RADIO_OFF_MS
+        self.connection.poll()
+        self.assertTrue(self.connection.poll())
+        self.assertEqual(self.connection.generation, 2)
+
+    def test_https_reconnect_does_not_restart_existing_retry_deadline(self):
+        self.connection.reconnect()
+        self.assertEqual(self.connection.failures, 0)
+
     def test_bad_configuration_does_not_connect(self):
         for config in ("WIFI_SSID=''", "WIFI_SSID='test'", "WIFI_SSID=12"):
             with self.subTest(config=config), patch("builtins.open", mock_open(read_data=config)):

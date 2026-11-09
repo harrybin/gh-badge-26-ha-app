@@ -5,9 +5,17 @@ import time
 
 
 def capture(update):
-    for _ in range(12):
+    deadline = time.ticks_add(time.ticks_ms(), 90000)
+    while True:
         update()
         badge.update()
+        client = namespace["client"]
+        if namespace["setup_error"]:
+            raise RuntimeError(namespace["setup_error"])
+        if namespace["network_ready"] and all(client.fresh(i) for i in range(len(client.values))):
+            break
+        if time.ticks_diff(time.ticks_ms(), deadline) >= 0:
+            raise RuntimeError("Live render timed out")
         time.sleep_ms(20)
     update()
     print("Office rendered:", screen.width, screen.height)
@@ -16,7 +24,15 @@ def capture(update):
     print("Framebuffer bytes:", len(screen.raw), "stride:", screen.stride)
 
 
-namespace = {"__name__": "office_render_check", "run": capture}
+class ReadOnlyBadge:
+    def pressed(self, button):
+        return False
+
+    def __getattr__(self, name):
+        return getattr(badge, name)
+
+
+namespace = {"__name__": "office_render_check", "run": capture, "badge": ReadOnlyBadge()}
 with open("/system/apps/office/__init__.py") as handle:
     exec(handle.read(), namespace)
 namespace["on_exit"]()
